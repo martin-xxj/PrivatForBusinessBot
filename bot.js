@@ -1,15 +1,111 @@
-require('dotenv').config()
+/* eslint no-underscore-dangle: ["error", { "allow": ["_id"] }] */
+require('dotenv').config();
 const TelegramBot = require('node-telegram-bot-api');
-const fetch = require("node-fetch");
-//const schedule = require('node-schedule');
-const bot = new TelegramBot(process.env.TOKEN, { polling: true });
-const privatURL = 'https://otp24.privatbank.ua/v3/api/1/info/currency/get';
+const fetch = require('node-fetch');
+const { CronJob } = require('cron');
+const mongoose = require('mongoose');
+const User = require('./user.js');
+const { isUpdated, normalizeDate, seasonIcons } = require('./utils.js');
+const { timeZone, privatURL, mongoURL } = require('./config.js');
 
-bot.onText(/.*/, async (msg) => {
-    const chatId = msg.chat.id;
-    const json = await (await fetch(privatURL)).json();
-    const Brate = parseFloat(json.USD.B.rate).toFixed(2);
-    const Srate = parseFloat(json.USD.S.rate).toFixed(2);
-    const message = `USD купівля: ${Brate}\nUSD продаж: ${Srate}`
-    bot.sendMessage(chatId, message);
+mongoose.connect(mongoURL, { useNewUrlParser: true, useUnifiedTopology: true })
+  .then(() => console.log('Connected to db.'))
+  .catch((err) => console.log(err));
+
+const bot = new TelegramBot(process.env.TOKEN, { polling: true });
+const fetchPB = async () => (await fetch(privatURL)).json();
+let isDataFetched = false;
+// eslint-disable-next-line no-use-before-define
+
+const sendRateMessage = async (id, { B, S }) => {
+  const f2 = (value, decimal = 2) => parseFloat(value).toFixed(decimal);
+  const delta = (value) => `${value < 0 ? '⬇' : '⬆'} ${f2(value)}`;
+  const date = new Date(normalizeDate(B.date));
+  const icon = seasonIcons[date.getMonth()];
+  const formatter = new Intl.DateTimeFormat('uk', {
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  });
+  const message = `\`\`\`
+  Останнє оновлення:
+  ${icon} ${formatter.format(date)}
+  💵 USD купівля: ${f2(B.rate)} ${delta(B.rate_delta)}
+  💵 USD продаж:  ${f2(S.rate)} ${delta(S.rate_delta)}
+  \`\`\``;
+  bot.sendMessage(id, message, { parse_mode: 'Markdown' });
+};
+const usersForAll = async (cb) => {
+  const ids = (await User.find()).map((user) => user._id);
+  ids.forEach(cb);
+};
+
+
+async function fetchData() {
+  const { USD } = await fetchPB();
+  if (!isUpdated(USD.B.date) || !isUpdated(USD.S.date)) {
+    return null;
+  }
+  isDataFetched = true;
+  return USD;
+}
+
+const fetchDataJob = new CronJob({
+  cronTime: '0-30 10 * * 1-5',
+  onTick: async () => {
+    const data = await fetchData();
+    if (data) {
+      usersForAll((user) => sendRateMessage(user, data));
+    }
+  },
+  start: false,
+  timeZone,
+});
+fetchDataJob.start();
+
+const weekDayJob = new CronJob({
+  cronTime: '0 10 * * 1-5',
+  onTick: () => {
+    isDataFetched = false;
+  },
+  start: false,
+  timeZone,
+});
+weekDayJob.start();
+
+const weekDayCancelJob = new CronJob({
+  cronTime: '30 10 * * 1-5',
+  onTick: () => {
+    if (!isDataFetched) {
+      usersForAll((id) => bot.sendMessage(id, 'Курс сьогодні не оновився '));
+    }
+  },
+  start: false,
+  timeZone,
+});
+weekDayCancelJob.start();
+
+bot.onText(/^\/subscribe$/, async ({ chat: { id, username } }) => {
+  if (await User.findById(id)) {
+    bot.sendMessage(id, '❗ Ви уже підписані на розсилку');
+    return;
+  }
+  const user = new User({ _id: id, username });
+  await user.save();
+  bot.sendMessage(id, '✅ Ви успішно підписалися на розсилку');
+});
+
+bot.onText(/^\/unsubscribe$/, async ({ chat: { id } }) => {
+  await User.findByIdAndDelete(id);
+  bot.sendMessage(id, '🔕 Ви успішно відписалися від розсилки');
+});
+
+bot.onText(/^\/rate$/, async ({ chat: { id } }) => {
+  const { USD } = await fetchPB();
+  sendRateMessage(id, USD);
+});
+
+bot.onText(/^\/start$/, async ({ chat: { id } }) => {
+  bot.sendMessage(id, '/subscribe — підписатися не щоденну розсилку курсу\n/unsubscribe — відписатися від розсилки \n/rate — дізнатися поточний курс');
 });
