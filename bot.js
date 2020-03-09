@@ -52,22 +52,23 @@ async function fetchData() {
 }
 
 const fetchDataJob = new CronJob({
-  cronTime: '0-30 10 * * 1-5',
+  cronTime: '* * * * *',
   onTick: async () => {
     const data = await fetchData();
     if (data) {
+      fetchDataJob.stop();
       usersForAll((user) => sendRateMessage(user, data));
     }
   },
   start: false,
   timeZone,
 });
-fetchDataJob.start();
 
 const weekDayJob = new CronJob({
   cronTime: '0 10 * * 1-5',
   onTick: () => {
     isDataFetched = false;
+    fetchDataJob.start();
   },
   start: false,
   timeZone,
@@ -78,6 +79,7 @@ const weekDayCancelJob = new CronJob({
   cronTime: '30 10 * * 1-5',
   onTick: () => {
     if (!isDataFetched) {
+      fetchDataJob.stop();
       usersForAll((id) => bot.sendMessage(id, 'Курс сьогодні не оновився '));
     }
   },
