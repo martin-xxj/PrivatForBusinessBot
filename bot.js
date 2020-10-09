@@ -111,3 +111,13 @@ bot.onText(/^\/rate$/, async ({ chat: { id } }) => {
 bot.onText(/^\/start$/, async ({ chat: { id } }) => {
   bot.sendMessage(id, '/subscribe — підписатися не щоденну розсилку курсу\n/unsubscribe — відписатися від розсилки \n/rate — дізнатися поточний курс');
 });
+
+bot.onText(/^\/users$/, async ({ chat: { id } }) => {
+  if (id != process.env.ADMIN_ID) return;
+  const usernames = (await User.find({}, { _id: false, username: true })).map(doc => doc.username);
+  bot.sendMessage(id, [
+    ...usernames,
+    '-'.repeat(20),
+    `${usernames.length} total`,
+  ].join('\n'));
+});
