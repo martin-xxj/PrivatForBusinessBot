@@ -6,9 +6,9 @@ const { CronJob } = require('cron');
 const mongoose = require('mongoose');
 const User = require('./user.js');
 const { isUpdated, normalizeDate, seasonIcons } = require('./utils.js');
-const { timeZone, privatURL, mongoURL } = require('./config.js');
+const { timeZone, privatURL } = require('./config.js');
 
-mongoose.connect(mongoURL, { useNewUrlParser: true, useUnifiedTopology: true })
+mongoose.connect(process.env.MONGO_URL, { useNewUrlParser: true, useUnifiedTopology: true })
   .then(() => console.log('Connected to db.'))
   .catch((err) => console.log(err));
 
