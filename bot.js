@@ -80,7 +80,6 @@ const weekDayCancelJob = new CronJob({
   onTick: () => {
     if (!isDataFetched) {
       fetchDataJob.stop();
-      usersForAll((id) => bot.sendMessage(id, 'Курс сьогодні не оновився '));
     }
   },
   start: false,
